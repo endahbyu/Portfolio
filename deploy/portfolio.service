@@ -1,0 +1,16 @@
+[Unit]
+Description=Portfolio (Next.js standalone)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/var/www/portfolio/current
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/env node server.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

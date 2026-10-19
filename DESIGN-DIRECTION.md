@@ -235,8 +235,8 @@ Menu: **Home · Work · Playground · About · Contact**
 | Konten | **MDX** | Tambah project = tambah 1 file, bisa embed komponen interaktif |
 | 3D (opsional, nanti) | React Three Fiber + drei | Hanya kalau ada kebutuhan jelas |
 | Gambar | `next/image`, AVIF/WebP | Performa |
-| Deploy | **Vercel** | Gratis, preview tiap push |
-| Analytics | Vercel Analytics / Plausible | Lihat project mana yang paling dilihat |
+| Deploy | **VPS sendiri** (Caddy + systemd + GitHub Actions) | Server sudah ada, auto-deploy tiap push ke main |
+| Analytics | Plausible / Umami | Lihat project mana yang paling dilihat |
 
 **Alternatif:** Vite + React kalau mau setup paling minimal. Library animasinya sama, bisa migrasi ke Next nanti.
 

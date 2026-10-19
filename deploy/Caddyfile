@@ -1,0 +1,5 @@
+# Replace ":80" with the domain once DNS points here; Caddy then adds HTTPS automatically.
+:80 {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}

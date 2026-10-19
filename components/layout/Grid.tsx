@@ -1,21 +1,14 @@
-import type { ComponentPropsWithoutRef, ElementType, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
-type GridProps<T extends ElementType> = {
-  as?: T;
+type GridProps = {
+  as?: "div" | "header" | "section" | "footer" | "main";
   /** Draw hairlines between columns (editorial look). */
   lines?: boolean;
   children: ReactNode;
-} & Omit<ComponentPropsWithoutRef<T>, "as" | "children">;
+} & HTMLAttributes<HTMLElement>;
 
 /** Editorial grid: 1 col mobile, 2 tablet, 3 desktop (see --grid-cols). */
-export function Grid<T extends ElementType = "div">({
-  as,
-  lines = false,
-  className = "",
-  children,
-  ...rest
-}: GridProps<T>) {
-  const Tag = as ?? "div";
+export function Grid({ as: Tag = "div", lines = false, className = "", children, ...rest }: GridProps) {
   return (
     <Tag
       className={`grid grid-cols-[repeat(var(--grid-cols),minmax(0,1fr))] px-(--gutter) ${

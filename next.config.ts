@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Self-contained server bundle for VPS deploy (see deploy/).
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

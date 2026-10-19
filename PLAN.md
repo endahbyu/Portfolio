@@ -38,9 +38,9 @@
 - [x] Next.js 16 (App Router) + TypeScript + Tailwind CSS v4 + ESLint
 - [x] Alias import `@/*`
 - [x] Init git
-- [ ] Push ke repo GitHub
+- [x] Push ke repo GitHub (endahbyu/Portfolio, public, approval wajib untuk workflow dari fork)
 - [x] File deployment: `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `deploy/`
-- [ ] Setup server sekali jalan: `bash deploy/setup-server.sh` (systemd, Caddy, self-hosted runner)
+- [x] Setup server sekali jalan: `bash deploy/setup-server.sh` (systemd, Caddy, self-hosted runner)
 
 **Alur deploy (VPS, bukan Vercel):**
 - Push ke branch lain / PR → **CI** (lint + build) di runner GitHub.

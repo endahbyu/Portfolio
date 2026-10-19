@@ -1,0 +1,72 @@
+@import "tailwindcss";
+@import "../styles/tokens.css";
+
+/* Expose tokens to Tailwind utilities (bg-bg, text-fg, font-mono, ease-out...) */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-surface: var(--surface);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-pixel: var(--font-geist-pixel-square), var(--font-geist-mono), monospace;
+
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.6;
+    background: var(--bg);
+  }
+  ::selection {
+    background: var(--fg);
+    color: var(--bg);
+  }
+  :focus-visible {
+    outline: 2px solid var(--fg);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .text-display {
+    font-size: var(--text-display);
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+    font-weight: 500;
+  }
+  .text-h1 {
+    font-size: var(--text-h1);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-weight: 500;
+  }
+  .text-h2 {
+    font-size: var(--text-h2);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+  .text-body-l {
+    font-size: var(--text-body-l);
+    line-height: 1.5;
+  }
+  .text-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+  }
+}

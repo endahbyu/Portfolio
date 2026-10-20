@@ -3,91 +3,136 @@
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/work";
 
-// Infinite, draggable WebGL grid (ref: labs.griflan.com). Tiles repeat in every direction,
-// drag/wheel have inertia, and the plane bulges with velocity.
+// Infinite WebGL gallery on a tilted floor plane (ref: labs.griflan.com).
+// Tiles live on a plane in "plane px" (origin = screen center, +y = toward viewer), which is
+// tilted around the X axis and projected with a real perspective divide. Drag / wheel pan the
+// plane with inertia; speed briefly steepens the tilt.
 
-const TILE_W = 512;
-const TILE_H = 640;
-const SEGMENTS = 12;
+const TILE_W = 768;
+const TILE_H = 480;
+const SEGMENTS = 8;
 
 const VERT = `#version 300 es
 in vec2 aUv;
 in vec2 aCell;
-uniform vec2 uRes, uOffset, uCell, uTile;
-uniform float uCount, uBulge, uHover;
+uniform vec2 uRes, uOffset, uCell, uTile, uStart, uGridMin, uGridMax;
+uniform float uCount, uTilt, uDist, uHover, uMode;
 out vec2 vUv;
+out vec2 vPlane;
+out float vDepth;
 flat out float vIndex;
 flat out float vHovered;
 void main() {
-  vec2 cell = floor(-uOffset / uCell) + aCell;
-  float idx = mod(cell.x + cell.y * 3.0, uCount);
-  idx = idx < 0.0 ? idx + uCount : idx;
-  vIndex = idx;
-  vHovered = step(abs(cell.x + cell.y * 10000.0 - uHover), 0.5);
-  vec2 gap = uCell - uTile;
-  vec2 p = cell * uCell + uOffset + gap * 0.5 + aUv * uTile; // px, top-left origin
-  vec2 ndc = (p / uRes) * 2.0 - 1.0;
-  ndc.y = -ndc.y;
-  float d = dot(ndc, ndc);
-  ndc *= 1.0 - uBulge * d;
-  gl_Position = vec4(ndc, 0.0, 1.0);
+  vec2 q;
+  if (uMode > 0.5) {
+    q = mix(uGridMin, uGridMax, aUv);
+    vIndex = 0.0;
+    vHovered = 0.0;
+  } else {
+    vec2 cell = uStart + aCell;
+    float idx = mod(cell.x + cell.y * 3.0, uCount);
+    vIndex = idx < 0.0 ? idx + uCount : idx;
+    vHovered = step(abs(cell.x + cell.y * 1000.0 - uHover), 0.5);
+    vec2 gap = uCell - uTile;
+    float grow = 1.0 + vHovered * 0.04;
+    vec2 center = cell * uCell + uOffset + uCell * 0.5;
+    q = center + (aUv - 0.5) * uTile * grow;
+  }
+  float c = cos(uTilt), s = sin(uTilt);
+  float depth = uDist - q.y * s;
+  vec2 v = vec2(q.x, q.y * c) * uDist;
+  gl_Position = vec4(v.x / (uRes.x * 0.5), -v.y / (uRes.y * 0.5), 0.0, depth);
   vUv = aUv;
+  vPlane = q;
+  vDepth = depth / uDist;
 }`;
 
 const FRAG = `#version 300 es
 precision highp float;
 in vec2 vUv;
+in vec2 vPlane;
+in float vDepth;
 flat in float vIndex;
 flat in float vHovered;
 uniform sampler2D uAtlas;
-uniform float uCount, uShift;
+uniform float uCount, uMode;
+uniform vec2 uOffset, uCell;
 out vec4 outColor;
 void main() {
-  vec2 uv = vUv;
-  float zoom = 1.0 - vHovered * 0.06;
-  uv = (uv - 0.5) * zoom + 0.5;
-  vec2 a = vec2((vIndex + uv.x) / uCount, uv.y);
-  float s = uShift * 0.004;
-  vec4 c = texture(uAtlas, a);
-  c.r = texture(uAtlas, a + vec2(s / uCount, 0.0)).r;
-  c.b = texture(uAtlas, a - vec2(s / uCount, 0.0)).b;
-  outColor = c;
+  float fog = 1.0 - smoothstep(1.4, 3.2, vDepth);
+  if (uMode > 0.5) {
+    vec2 g = (vPlane - uOffset) / (uCell * 0.5);
+    vec2 d = abs(fract(g - 0.5) - 0.5) / fwidth(g);
+    float line = 1.0 - min(min(d.x, d.y), 1.0);
+    outColor = vec4(vec3(0.98), line * 0.07 * fog);
+    return;
+  }
+  vec2 a = vec2((vIndex + vUv.x) / uCount, vUv.y);
+  vec3 col = texture(uAtlas, a).rgb;
+  col *= 0.86 + vHovered * 0.14;
+  outColor = vec4(col * fog, 1.0);
 }`;
 
+// Placeholder collage: a few panels per project, like a mini case-study board.
 function drawAtlas(projects: Project[], images: (HTMLImageElement | null)[]) {
   const canvas = document.createElement("canvas");
   canvas.width = TILE_W * projects.length;
   canvas.height = TILE_H;
   const ctx = canvas.getContext("2d")!;
+  const palettes = [
+    ["#0a0a0a", "#fafaf7", "#2b2b2b", "#d9d9d4"],
+    ["#fafaf7", "#0a0a0a", "#bdbdb8", "#3a3a3a"],
+  ];
   projects.forEach((p, i) => {
-    const x = i * TILE_W;
+    const x0 = i * TILE_W;
     const img = images[i];
     if (img) {
       const scale = Math.max(TILE_W / img.width, TILE_H / img.height);
       const w = img.width * scale;
       const h = img.height * scale;
-      ctx.drawImage(img, x + (TILE_W - w) / 2, (TILE_H - h) / 2, w, h);
+      ctx.drawImage(img, x0 + (TILE_W - w) / 2, (TILE_H - h) / 2, w, h);
       return;
     }
-    // Placeholder card: monochrome, alternating ink / paper.
-    const dark = i % 2 === 0;
-    ctx.fillStyle = dark ? "#0a0a0a" : "#ffffff";
-    ctx.fillRect(x, 0, TILE_W, TILE_H);
-    ctx.strokeStyle = dark ? "rgba(250,250,247,0.14)" : "rgba(10,10,10,0.12)";
-    for (let g = 64; g < TILE_W; g += 64) {
-      ctx.beginPath();
-      ctx.moveTo(x + g, 0);
-      ctx.lineTo(x + g, TILE_H);
-      ctx.stroke();
-    }
-    ctx.fillStyle = dark ? "#fafaf7" : "#0a0a0a";
-    ctx.font = "500 22px ui-monospace, monospace";
-    ctx.fillText(`[${String(i + 1).padStart(2, "0")}]`, x + 32, 56);
-    ctx.fillText(p.year, x + TILE_W - 32 - ctx.measureText(p.year).width, 56);
-    ctx.font = "600 64px system-ui, sans-serif";
-    ctx.fillText(p.title, x + 32, TILE_H - 80);
-    ctx.font = "400 22px ui-monospace, monospace";
-    ctx.fillText(p.category.toUpperCase(), x + 32, TILE_H - 36);
+    const pal = palettes[i % 2];
+    const pad = 6;
+    const panels = [
+      [0, 0, 0.42, 0.5],
+      [0.42, 0, 0.3, 0.5],
+      [0.72, 0, 0.28, 0.5],
+      [0, 0.5, 0.3, 0.5],
+      [0.3, 0.5, 0.7, 0.5],
+    ];
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(x0, 0, TILE_W, TILE_H);
+    panels.forEach(([px, py, pw, ph], k) => {
+      const bg = pal[(k + i) % 4];
+      const fg = bg === "#0a0a0a" || bg === "#2b2b2b" || bg === "#3a3a3a" ? "#fafaf7" : "#0a0a0a";
+      const rx = x0 + px * TILE_W + pad / 2;
+      const ry = py * TILE_H + pad / 2;
+      const rw = pw * TILE_W - pad;
+      const rh = ph * TILE_H - pad;
+      ctx.fillStyle = bg;
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.fillStyle = fg;
+      if (k === 0) {
+        ctx.font = "600 52px system-ui, sans-serif";
+        ctx.fillText(p.title, rx + 20, ry + rh - 24, rw - 40);
+        ctx.font = "500 16px ui-monospace, monospace";
+        ctx.fillText(`[${String(i + 1).padStart(2, "0")}]  ${p.year}`, rx + 20, ry + 34);
+      } else if (k === 4) {
+        ctx.font = "500 16px ui-monospace, monospace";
+        ctx.fillText(p.category.toUpperCase(), rx + 20, ry + 34);
+        ctx.globalAlpha = 0.5;
+        for (let b = 0; b < 5; b++) ctx.fillRect(rx + 20, ry + 64 + b * 22, rw * (0.3 + ((b * 37 + i * 13) % 50) / 100), 8);
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.arc(rx + rw / 2, ry + rh / 2, Math.min(rw, rh) * (0.18 + ((k + i) % 3) * 0.08), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    });
   });
   return canvas;
 }
@@ -131,8 +176,9 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
     gl.linkProgram(prog);
     gl.useProgram(prog);
     const u = (n: string) => gl.getUniformLocation(prog, n);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Subdivided quad so the bulge curves edges.
     const uvs: number[] = [];
     for (let y = 0; y < SEGMENTS; y++)
       for (let x = 0; x < SEGMENTS; x++) {
@@ -140,10 +186,8 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
         uvs.push(a, b, c, b, a, d, a, d, c, b, c, d);
       }
     const vertCount = uvs.length / 2;
-    const vao = gl.createVertexArray();
-    gl.bindVertexArray(vao);
-    const uvBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
+    gl.bindVertexArray(gl.createVertexArray());
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
     const aUv = gl.getAttribLocation(prog, "aUv");
     gl.enableVertexAttribArray(aUv);
@@ -155,17 +199,23 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
 
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([20, 20, 20, 255]));
+    gl.generateMipmap(gl.TEXTURE_2D);
     Promise.all(projects.map((p) => loadImage(p.image))).then((imgs) => {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, drawAtlas(projects, imgs));
+      gl.generateMipmap(gl.TEXTURE_2D);
     });
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([250, 250, 247, 255]));
 
-    let w = 0, h = 0, cols = 0, rows = 0;
+    let w = 0, h = 0, dist = 0;
     const cell = { w: 0, h: 0, tw: 0, th: 0 };
+    const baseTilt = 0.82;
+    let tilt = baseTilt;
+    let maxInstances = 0;
+
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio, 2);
       w = canvas.clientWidth;
@@ -173,12 +223,14 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
       canvas.width = w * dpr;
       canvas.height = h * dpr;
       gl.viewport(0, 0, canvas.width, canvas.height);
-      cell.tw = Math.max(180, Math.min(320, w * 0.22));
+      dist = h * 1.1;
+      cell.tw = Math.max(220, Math.min(380, w * 0.26));
       cell.th = (cell.tw * TILE_H) / TILE_W;
-      cell.w = cell.tw * 1.35;
-      cell.h = cell.th * 1.25;
-      cols = Math.ceil(w / cell.w) + 2;
-      rows = Math.ceil(h / cell.h) + 2;
+      cell.w = cell.tw * 1.6;
+      cell.h = cell.th * 2.1;
+      // Generous instance pool; the visible window is recomputed every frame.
+      const cols = 24, rows = 24;
+      maxInstances = cols * rows;
       const cells: number[] = [];
       for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) cells.push(x, y);
       gl.bindBuffer(gl.ARRAY_BUFFER, cellBuf);
@@ -188,20 +240,27 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
     resize();
     window.addEventListener("resize", resize);
 
+    // Screen px (from center, +y down) -> plane px, and back.
+    const toPlane = (sx: number, sy: number) => {
+      const c = Math.cos(tilt), s = Math.sin(tilt);
+      const y = (sy * dist) / (c * dist + sy * s);
+      return { x: (sx * (dist - y * s)) / dist, y };
+    };
+
     const offset = { x: 0, y: 0 };
     const target = { x: 0, y: 0 };
-    const vel = { x: 0, y: 0 };
     let dragging = false, moved = 0, last = { x: 0, y: 0 }, pointer = { x: -1e4, y: -1e4 };
-    let bulge = 0, hoverKey = -1e9;
 
     const cellAt = (px: number, py: number) => {
-      const cx = Math.floor((px - offset.x) / cell.w);
-      const cy = Math.floor((py - offset.y) / cell.h);
-      const lx = px - offset.x - cx * cell.w - (cell.w - cell.tw) / 2;
-      const ly = py - offset.y - cy * cell.h - (cell.h - cell.th) / 2;
+      if (px < 0 || py < 0 || px > w || py > h) return null;
+      const q = toPlane(px - w / 2, py - h / 2);
+      const cx = Math.floor((q.x - offset.x) / cell.w);
+      const cy = Math.floor((q.y - offset.y) / cell.h);
+      const lx = q.x - offset.x - cx * cell.w - (cell.w - cell.tw) / 2;
+      const ly = q.y - offset.y - cy * cell.h - (cell.h - cell.th) / 2;
       if (lx < 0 || ly < 0 || lx > cell.tw || ly > cell.th) return null;
       const n = projects.length;
-      return { key: cx + cy * 10000, index: (((cx + cy * 3) % n) + n) % n };
+      return { key: cx + cy * 1000, index: (((cx + cy * 3) % n) + n) % n };
     };
 
     const down = (e: PointerEvent) => {
@@ -216,8 +275,8 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
       if (!dragging) return;
       const dx = e.clientX - last.x, dy = e.clientY - last.y;
       moved += Math.abs(dx) + Math.abs(dy);
-      target.x += dx * 1.2;
-      target.y += dy * 1.2;
+      target.x += dx * 1.3;
+      target.y += dy * 2;
       last = { x: e.clientX, y: e.clientY };
     };
     const up = (e: PointerEvent) => {
@@ -233,7 +292,7 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
       target.x -= e.deltaX;
-      target.y -= e.deltaY;
+      target.y -= e.deltaY * 1.4;
     };
     canvas.addEventListener("pointerdown", down);
     canvas.addEventListener("pointermove", move);
@@ -243,16 +302,26 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
 
     let raf = 0, lastIndex = -1;
     const frame = () => {
-      const ease = reduced ? 1 : 0.085;
-      vel.x = (target.x - offset.x) * ease;
-      vel.y = (target.y - offset.y) * ease;
-      offset.x += vel.x;
-      offset.y += vel.y;
-      const speed = Math.min(Math.hypot(vel.x, vel.y) / 60, 1);
-      bulge += ((reduced ? 0 : 0.06 + speed * 0.12) - bulge) * 0.1;
+      const ease = reduced ? 1 : 0.08;
+      const vx = (target.x - offset.x) * ease;
+      const vy = (target.y - offset.y) * ease;
+      offset.x += vx;
+      offset.y += vy;
+      if (!reduced) {
+        const speed = Math.max(-1, Math.min(1, vy / 40));
+        tilt += (baseTilt + speed * 0.12 - tilt) * 0.08;
+      }
+
+      // Visible plane window: top edge reaches far back, bottom is near the viewer.
+      const top = toPlane(0, -h / 2).y;
+      const bottom = toPlane(0, h / 2).y;
+      const halfW = ((w / 2) * (dist - top * Math.sin(tilt))) / dist;
+      const minX = -halfW - cell.w, maxX = halfW + cell.w;
+      const minY = top - cell.h, maxY = bottom + cell.h;
+      const start = [Math.floor((minX - offset.x) / cell.w), Math.floor((minY - offset.y) / cell.h)];
+      const count = Math.min(maxInstances, 24 * Math.min(24, Math.ceil((maxY - minY) / cell.h) + 1));
 
       const hit = dragging ? null : cellAt(pointer.x, pointer.y);
-      hoverKey = hit ? hit.key : -1e9;
       const idx = hit ? hit.index : -1;
       if (idx !== lastIndex) {
         lastIndex = idx;
@@ -266,11 +335,18 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
       gl.uniform2f(u("uOffset"), offset.x, offset.y);
       gl.uniform2f(u("uCell"), cell.w, cell.h);
       gl.uniform2f(u("uTile"), cell.tw, cell.th);
+      gl.uniform2f(u("uStart"), start[0], start[1]);
+      gl.uniform2f(u("uGridMin"), minX, minY);
+      gl.uniform2f(u("uGridMax"), maxX, maxY);
       gl.uniform1f(u("uCount"), projects.length);
-      gl.uniform1f(u("uBulge"), bulge);
-      gl.uniform1f(u("uHover"), hoverKey);
-      gl.uniform1f(u("uShift"), reduced ? 0 : speed * 4);
-      gl.drawArraysInstanced(gl.TRIANGLES, 0, vertCount, cols * rows);
+      gl.uniform1f(u("uTilt"), tilt);
+      gl.uniform1f(u("uDist"), dist);
+      gl.uniform1f(u("uHover"), hit ? hit.key : -1e9);
+
+      gl.uniform1f(u("uMode"), 1);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, vertCount, 1);
+      gl.uniform1f(u("uMode"), 0);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, vertCount, count);
       raf = requestAnimationFrame(frame);
     };
     frame();
@@ -288,7 +364,7 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
   }, [projects]);
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-(--bg) select-none">
+    <div className="relative h-dvh w-full overflow-hidden bg-(--invert-bg) text-(--invert-fg) select-none">
       <canvas
         ref={canvasRef}
         aria-hidden
@@ -296,26 +372,33 @@ export function WorkGallery({ projects }: { projects: Project[] }) {
         style={{ cursor: "grab" }}
       />
 
+      <header className="text-label pointer-events-none absolute inset-x-0 top-0 grid grid-cols-3 items-center border-b border-white/10 bg-(--invert-bg)/80 p-(--gutter) backdrop-blur">
+        <span>ENDAH LIYUSLIHA</span>
+        <span className="text-center">(01) Selected Work</span>
+        <span className="text-right opacity-60">{projects.length} projects</span>
+      </header>
+
       {hovered && (
         <div
-          className="text-label pointer-events-none fixed z-10 rounded-full bg-(--fg) px-(--space-3) py-(--space-1) text-(--invert-fg)"
+          className="text-label pointer-events-none fixed z-10 rounded-full bg-(--invert-fg) px-(--space-3) py-(--space-1) text-(--invert-bg)"
           style={{ left: cursor.x + 16, top: cursor.y + 16 }}
         >
           View — {hovered.title}
         </div>
       )}
 
-      <div className="text-label pointer-events-none absolute inset-x-0 bottom-0 flex justify-between p-(--gutter)">
-        <span>(01) Selected Work</span>
-        <span className="text-muted">Drag to explore</span>
+      <div className="text-label pointer-events-none absolute inset-x-0 bottom-(--gutter) flex justify-center">
+        <span className="rounded-full border border-white/20 bg-(--invert-bg)/70 px-(--space-4) py-(--space-2) backdrop-blur">
+          Drag or scroll to explore
+        </span>
       </div>
 
       {/* Accessible fallback: always present for keyboard / screen readers, visible without WebGL. */}
-      <nav aria-label="Projects" className={supported ? "sr-only" : "absolute inset-0 overflow-auto p-(--gutter)"}>
+      <nav aria-label="Projects" className={supported ? "sr-only" : "absolute inset-0 overflow-auto p-(--gutter) pt-24"}>
         <ul>
           {projects.map((p, i) => (
             <li key={p.slug}>
-              <a href={`#${p.slug}`} className="block py-(--space-2) hover:text-muted">
+              <a href={`#${p.slug}`} className="block py-(--space-2) hover:opacity-60">
                 [{String(i + 1).padStart(2, "0")}] {p.title} — {p.category}, {p.year}
               </a>
             </li>
